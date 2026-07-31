@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# 环境
+.env
+.env.local
+
+# 数据与缓存
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+.soccerdata_cache/
+cache/
+
+# CSV 原始下载（体积大，不入库）
+downloads/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/

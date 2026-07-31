@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fussball-bund"
+version = "0.1.0"
+description = "足彩数据分析项目：五大联赛与欧冠的赔率抓取、历史战绩、竞猜分析"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "fussball-bund" }]
+
+dependencies = [
+    "requests>=2.32",
+    "pandas>=2.2",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "click>=8.1",
+    # 基本面数据采集（FBref/Understat/ClubElo 等，内置缓存与反爬兜底）
+    "soccerdata>=1.6",
+    # CSV/HTML 解析备用
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    # 赔率去水（Shin 方法，依赖 scipy）
+    "shin>=0.3",
+    # Dixon-Coles 模型最大似然优化
+    "scipy>=1.12",
+]
+
+[project.optional-dependencies]
+# 可选：oddsportal 实时赔率（Playwright 抓取，稳定性较低，按需启用）
+oddsportal = ["oddsharvester>=0.2"]
+# 可选：Jupyter 分析与回测
+analysis = ["jupyter>=1.0", "matplotlib>=3.8", "duckdb>=1.0"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+fussball = "fussball_bund.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]

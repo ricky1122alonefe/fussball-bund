@@ -1,0 +1,66 @@
+# 五大联赛 + 欧冠 数据源映射
+# football_data_uk: Football-Data.co.uk 的联赛代码（CSV 历史赔率+战绩）
+# odds_api: The Odds API 的 sport key（实时赔率）
+# fbref: SoccerData/FBref 的联赛标识（基本面统计）
+# understat: SoccerData/Understat 的联赛名（xG 数据）
+
+leagues:
+  EPL:
+    name: 英超
+    name_en: English Premier League
+    country: England
+    football_data_uk: E0
+    odds_api: soccer_epl
+    fbref: ENG-Premier League
+    understat: ENG-Premier League
+
+  LALIGA:
+    name: 西甲
+    name_en: Spanish La Liga
+    country: Spain
+    football_data_uk: SP1
+    odds_api: soccer_spain_la_liga
+    fbref: ESP-La Liga
+    understat: ESP-La Liga
+
+  SERIE_A:
+    name: 意甲
+    name_en: Italian Serie A
+    country: Italy
+    football_data_uk: I1
+    odds_api: soccer_italy_serie_a
+    fbref: ITA-Serie A
+    understat: ITA-Serie A
+
+  BUNDESLIGA:
+    name: 德甲
+    name_en: German Bundesliga
+    country: Germany
+    football_data_uk: D1
+    odds_api: soccer_germany_bundesliga
+    fbref: GER-Bundesliga
+    understat: GER-Bundesliga
+
+  LIGUE_1:
+    name: 法甲
+    name_en: French Ligue 1
+    country: France
+    football_data_uk: F1
+    odds_api: soccer_france_ligue_one
+    fbref: FRA-Ligue 1
+    understat: FRA-Ligue 1
+
+  UCL:
+    name: 欧冠
+    name_en: UEFA Champions League
+    country: Europe
+    football_data_uk: null  # football-data.co.uk 已停止维护欧冠 CSV（2023起 404），改用 odds_api + fbref
+    odds_api: soccer_uefa_champs_league
+    fbref: UEFA-Champions League
+    understat: null  # Understat 不覆盖欧冠
+
+# Football-Data.co.uk 默认抓取的赛季（YYYY-YYYY）
+default_seasons:
+  - 2023-2024
+  - 2024-2025
+  - 2025-2026
