@@ -211,17 +211,23 @@ def predict(league: str, season: str, home: str, away: str, fit_seasons: str | N
     help="预测模型",
 )
 @click.option("--calibrate", is_flag=True, help="启用平局校准（混合庄家隐含平局概率）")
+@click.option("--bet-period", type=click.Choice(["opening", "closing"]), default="opening",
+              help="下注赔率周期（opening 默认；closing 复现旧基线）")
+@click.option("--protocol", type=click.Choice(["default", "legacy"]), default="default",
+              help="legacy=强制 closing 复现旧基线")
 def value(
-    league: str, season: str, min_edge: float, bookmaker: str, limit: int, fit_seasons: str | None, model: str, calibrate: bool
+    league, season, min_edge, bookmaker, limit, fit_seasons, model, calibrate, bet_period, protocol
 ) -> None:
-    """识别价值投注（模型概率 vs 庄家收盘赔率）。"""
+    """识别价值投注（模型概率 vs 庄家赔率）。"""
     from fussball_bund.analysis import ValueBetFinder
 
     db = get_db()
     seasons = _resolve_fit_seasons(season, fit_seasons)
     model = _build_model(model, db, league, seasons)
+    if protocol == "legacy":
+        bet_period = "closing"
     bets = ValueBetFinder(db=db, model=model, calibrate=calibrate).find(
-        league, season, bookmaker=bookmaker, min_edge=min_edge
+        league, season, bookmaker=bookmaker, period=bet_period, min_edge=min_edge
     )
     if not bets:
         click.echo("未发现价值投注（尝试降低 --min-edge）")
@@ -252,23 +258,62 @@ def value(
     help="预测模型",
 )
 @click.option("--calibrate", is_flag=True, help="启用平局校准")
-def backtest(league: str, season: str, min_edge: float, bookmaker: str, fit_seasons: str | None, model: str, calibrate: bool) -> None:
+@click.option("--bet-period", type=click.Choice(["opening", "closing"]), default="opening",
+              help="下注赔率周期（opening 默认；closing 复现旧基线）")
+@click.option("--protocol", type=click.Choice(["default", "legacy"]), default="default",
+              help="legacy=强制 closing 复现旧基线")
+def backtest(league, season, min_edge, bookmaker, fit_seasons, model, calibrate, bet_period, protocol) -> None:
     """回测价值投注策略（用历史赛季拟合，回测目标赛季实际盈亏）。"""
     from fussball_bund.analysis import ValueBetFinder
 
     db = get_db()
     seasons = _resolve_fit_seasons(season, fit_seasons)
     model = _build_model(model, db, league, seasons)
+    if protocol == "legacy":
+        bet_period = "closing"
     result = ValueBetFinder(db=db, model=model, calibrate=calibrate).backtest(
-        league, season, bookmaker=bookmaker, min_edge=min_edge
+        league, season, bookmaker=bookmaker, period=bet_period, min_edge=min_edge
     )
-    click.echo(f"\n  回测 {league} {season}  (拟合: {seasons}, 庄家: {bookmaker})")
+    click.echo(f"\n  回测 {league} {season}  (拟合: {seasons}, 庄家: {bookmaker}, 下注: {bet_period})")
     click.echo(f"  投注笔数:   {result['total_bets']}")
     click.echo(f"  命中/未中:  {result['wins']}/{result['losses']}")
     click.echo(f"  命中率:     {result['win_rate']:.1%}")
     click.echo(f"  平均赔率:   {result['avg_odds']}")
     click.echo(f"  盈亏:       {result['profit']:+.2f}")
     click.echo(f"  ROI:        {result['roi']:+.1f}%")
+
+
+@cli.command("walkforward")
+@click.option("--league", "-l", required=True, help="联赛 key")
+@click.option("--season", "-s", required=True, help="赛季")
+@click.option("--model", type=click.Choice(["poisson", "dixoncoles", "xgpoisson"]), default="dixoncoles", help="预测模型")
+@click.option("--bet-period", type=click.Choice(["opening", "closing"]), default="opening", help="下注赔率周期")
+@click.option("--bookmaker", default="Pinnacle", help="庄家")
+@click.option("--min-edge", default=0.03, type=float, help="最小优势阈值")
+@click.option("--calibrate", is_flag=True, help="启用平局校准")
+@click.option("-o", "--output", help="输出 JSON 路径")
+def walkforward(league, season, model, bet_period, bookmaker, min_edge, calibrate, output) -> None:
+    """Walk-forward 评估（严格反泄漏：训练只用 match_date < 当前比赛）。"""
+    from fussball_bund.analysis.walkforward import run_walkforward, save_result
+
+    result = run_walkforward(
+        league, season, model_name=model, bet_period=bet_period,
+        bookmaker=bookmaker, min_edge=min_edge, calibrate=calibrate,
+    )
+    click.echo(f"\n  Walk-Forward {league} {season}  (模型: {model}, 下注: {bet_period})")
+    click.echo(f"  比赛: {result.n_matches}  重训: {result.refits}  投注: {result.n_bets}")
+    click.echo(f"  Brier:       {result.brier:.4f}  (越低越好)")
+    click.echo(f"  Log-loss:    {result.log_loss:.4f}  (越低越好)")
+    roi = result.opening_roi
+    click.echo(f"  下注 ROI:    {roi['roi_pct']:+.2f}%  ({roi['n_bets']}笔, 命中{roi['win_rate']:.1%})")
+    if result.clv.get("mean_clv") is not None:
+        click.echo(f"  CLV:         {result.clv['mean_clv']:+.2%}  (正=beat closing, {result.clv['positive_pct']:.0%}为正)")
+    else:
+        click.echo("  CLV:         无收盘数据")
+    click.echo("  (选型优先级: CLV > Brier > opening ROI；禁止用 closing ROI 选型)")
+    if output:
+        save_result(result, output)
+        click.echo(f"  详情: {output}")
 
 
 @cli.command("margin")

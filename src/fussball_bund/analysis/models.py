@@ -63,21 +63,37 @@ class PoissonModel:
         self.away_defense: dict[str, float] = {}
         self._fitted = False
 
-    def fit(self, league_code: str, seasons: list[str], min_matches: int = 5) -> "PoissonModel":
-        """用指定联赛+赛季的历史比赛拟合模型。
+    def fit(
+        self,
+        league_code: str,
+        seasons: list[str] | None = None,
+        min_matches: int = 5,
+        max_date: str | None = None,
+    ) -> "PoissonModel":
+        """用指定联赛的历史比赛拟合模型。
 
         Args:
+            seasons: 赛季列表（与 max_date 二选一）
             min_matches: 球队至少参赛场次，不足则回退到联赛均值(强度=1.0)
+            max_date: 若指定，只用 match_date < max_date 的比赛（walk-forward 反泄漏，跨赛季）
         """
-        ph = ", ".join("?" * len(seasons))
-        rows = self.db.execute(
-            f"SELECT home_team, away_team, ft_home_goals, ft_away_goals FROM matches "
-            f"WHERE league_code=? AND season IN ({ph}) "
-            f"AND ft_home_goals IS NOT NULL AND ft_away_goals IS NOT NULL",
-            (league_code, *seasons),
-        )
+        if max_date is not None:
+            rows = self.db.execute(
+                "SELECT home_team, away_team, ft_home_goals, ft_away_goals FROM matches "
+                "WHERE league_code=? AND match_date < ? "
+                "AND ft_home_goals IS NOT NULL AND ft_away_goals IS NOT NULL",
+                (league_code, max_date),
+            )
+        else:
+            ph = ", ".join("?" * len(seasons))
+            rows = self.db.execute(
+                f"SELECT home_team, away_team, ft_home_goals, ft_away_goals FROM matches "
+                f"WHERE league_code=? AND season IN ({ph}) "
+                f"AND ft_home_goals IS NOT NULL AND ft_away_goals IS NOT NULL",
+                (league_code, *seasons),
+            )
         if not rows:
-            raise ValueError(f"无历史比赛数据: {league_code} {seasons}")
+            raise ValueError(f"无历史比赛数据: {league_code} {seasons or max_date}")
 
         home_scored = defaultdict(list)  # 主队主场进球
         home_conceded = defaultdict(list)  # 主队主场失球

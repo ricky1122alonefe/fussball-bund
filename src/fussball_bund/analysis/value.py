@@ -53,7 +53,7 @@ class ValueBetFinder:
         league_code: str,
         season: str,
         bookmaker: str = "Pinnacle",
-        period: str = "closing",
+        period: str = "opening",
         min_edge: float = 0.03,
         min_odds: float = 1.5,
     ) -> list[ValueBet]:

@@ -80,17 +80,30 @@ class DixonColesModel:
     def fit(
         self,
         league_code: str,
-        seasons: list[str],
+        seasons: list[str] | None = None,
         ref_date: str | None = None,
+        max_date: str | None = None,
     ) -> "DixonColesModel":
-        rows = self.db.execute(
-            f"SELECT home_team, away_team, ft_home_goals, ft_away_goals, match_date "
-            f"FROM matches WHERE league_code=? AND season IN ({','.join('?' * len(seasons))}) "
-            f"AND ft_home_goals IS NOT NULL AND ft_away_goals IS NOT NULL",
-            (league_code, *seasons),
-        )
+        # walk-forward 模式：用 match_date < max_date 的全部历史（跨赛季，严格反泄漏）
+        if max_date is not None:
+            rows = self.db.execute(
+                "SELECT home_team, away_team, ft_home_goals, ft_away_goals, match_date "
+                "FROM matches WHERE league_code=? AND match_date < ? "
+                "AND ft_home_goals IS NOT NULL AND ft_away_goals IS NOT NULL "
+                "ORDER BY match_date",
+                (league_code, max_date),
+            )
+            label = f"<{max_date}"
+        else:
+            rows = self.db.execute(
+                f"SELECT home_team, away_team, ft_home_goals, ft_away_goals, match_date "
+                f"FROM matches WHERE league_code=? AND season IN ({','.join('?' * len(seasons))}) "
+                f"AND ft_home_goals IS NOT NULL AND ft_away_goals IS NOT NULL",
+                (league_code, *seasons),
+            )
+            label = str(seasons)
         if not rows:
-            raise ValueError(f"无历史数据: {league_code} {seasons}")
+            raise ValueError(f"无历史数据: {league_code} {label}")
 
         teams = sorted({r["home_team"] for r in rows} | {r["away_team"] for r in rows})
         self.teams = teams
@@ -156,7 +169,7 @@ class DixonColesModel:
 
         logger.info(
             "Dixon-Coles 拟合完成 %s %s: %d 场, rho=%.4f, home_adv=%.4f, 收敛=%s",
-            league_code, seasons, len(rows), self.rho, self.home_adv,
+            league_code, label, len(rows), self.rho, self.home_adv,
             result.success,
         )
         return self
