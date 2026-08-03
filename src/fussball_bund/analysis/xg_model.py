@@ -47,21 +47,40 @@ class XGPoissonModel:
         self.away_defense: dict[str, float] = {}
         self._fitted = False
 
-    def fit(self, league_code: str, seasons: list[str], min_matches: int = 5) -> "XGPoissonModel":
+    def fit(
+        self,
+        league_code: str,
+        seasons: list[str] | None = None,
+        min_matches: int = 5,
+        max_date: str | None = None,
+    ) -> "XGPoissonModel":
         # 1. 从 understat_shots 聚合每场 home_xg/away_xg + date + understat 球队名
-        ph = ",".join("?" * len(seasons))
-        rows = self.db.execute(
-            f"SELECT match_id, date, home_team, away_team, "
-            f"SUM(CASE WHEN h_a='h' THEN xg END) AS home_xg, "
-            f"SUM(CASE WHEN h_a='a' THEN xg END) AS away_xg "
-            f"FROM understat_shots WHERE league=? AND season IN ({ph}) "
-            f"GROUP BY match_id, date, home_team, away_team",
-            (league_code, *seasons),
-        )
+        # walk-forward 模式：用 date < max_date 的 xG（跨赛季，严格反泄漏）
+        if max_date is not None:
+            rows = self.db.execute(
+                "SELECT match_id, date, home_team, away_team, "
+                "SUM(CASE WHEN h_a='h' THEN xg END) AS home_xg, "
+                "SUM(CASE WHEN h_a='a' THEN xg END) AS away_xg "
+                "FROM understat_shots WHERE league=? AND date < ? "
+                "GROUP BY match_id, date, home_team, away_team",
+                (league_code, max_date),
+            )
+            label = f"xG<{max_date}"
+        else:
+            ph = ",".join("?" * len(seasons))
+            rows = self.db.execute(
+                f"SELECT match_id, date, home_team, away_team, "
+                f"SUM(CASE WHEN h_a='h' THEN xg END) AS home_xg, "
+                f"SUM(CASE WHEN h_a='a' THEN xg END) AS away_xg "
+                f"FROM understat_shots WHERE league=? AND season IN ({ph}) "
+                f"GROUP BY match_id, date, home_team, away_team",
+                (league_code, *seasons),
+            )
+            label = str(seasons)
         if not rows:
             raise ValueError(
-                f"无 Understat xG 数据: {league_code} {seasons}，"
-                "请先执行 fussball collect-fundamentals --source understat"
+                f"无 Understat xG 数据: {league_code} {label}，"
+                "请先执行 fussball collect-fundamentals --source understat 采集对应赛季/日期范围"
             )
 
         # 2. 用 date 匹配 matches 表，建 Understat 名 → football-data 名映射
@@ -127,7 +146,7 @@ class XGPoissonModel:
         self._fitted = True
         logger.info(
             "xG Poisson 拟合完成 %s %s: %d 场, avg_home_xg=%.2f, avg_away_xg=%.2f, 队数=%d",
-            league_code, seasons, n, self.avg_home_xg, self.avg_away_xg, len(self.home_attack),
+            league_code, label, n, self.avg_home_xg, self.avg_away_xg, len(self.home_attack),
         )
         return self
 

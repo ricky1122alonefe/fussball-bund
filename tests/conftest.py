@@ -53,3 +53,32 @@ def insert_match(tmp_db):
         return mid
 
     return _insert
+
+
+@pytest.fixture
+def insert_xg_match(tmp_db):
+    """插入一场 understat xG 数据（主/客各一条射门），用于 xG 模型测试。"""
+
+    def _insert(league, season, date, home, away, home_xg, away_xg, match_id="m1"):
+        with tmp_db.transaction() as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS understat_shots ("
+                "league TEXT, season TEXT, event_id TEXT, match_id TEXT, date TEXT, "
+                "home_team TEXT, away_team TEXT, team TEXT, h_a TEXT, "
+                "minute INTEGER, player TEXT, "
+                "x FLOAT, y FLOAT, xg FLOAT, result TEXT, situation TEXT, "
+                "UNIQUE(league, season, event_id))"
+            )
+            for suffix, team, h_a, xg in (
+                ("h", home, "h", home_xg),
+                ("a", away, "a", away_xg),
+            ):
+                conn.execute(
+                    "INSERT OR IGNORE INTO understat_shots"
+                    "(league,season,event_id,match_id,date,home_team,away_team,team,h_a,xg) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (league, season, match_id + suffix, match_id, date, home, away, team, h_a, xg),
+                )
+        return match_id
+
+    return _insert
