@@ -23,7 +23,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     # 赔率去水（Shin 方法，依赖 scipy）
-    "shin>=0.3",
+    "shin>=0.2.1",
     # Dixon-Coles 模型最大似然优化
     "scipy>=1.12",
 ]
