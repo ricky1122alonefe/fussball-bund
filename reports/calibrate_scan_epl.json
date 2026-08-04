@@ -1,0 +1,56 @@
+{
+  "league": "EPL",
+  "season": "2024-2025",
+  "model": "dixoncoles",
+  "bet_period": "opening",
+  "bookmaker": "Pinnacle",
+  "min_edge": 0.03,
+  "rows": [
+    {
+      "label": "raw",
+      "alpha": null,
+      "brier": 0.5878,
+      "log_loss": 0.9833,
+      "opening_roi_pct": -2.72,
+      "n_bets": 281,
+      "win_rate": 0.2989,
+      "clv_mean": -0.0071,
+      "clv_positive_pct": 0.456
+    },
+    {
+      "label": "α=0.5",
+      "alpha": 0.5,
+      "brier": 0.588,
+      "log_loss": 0.9845,
+      "opening_roi_pct": -4.84,
+      "n_bets": 232,
+      "win_rate": 0.306,
+      "clv_mean": -0.0129,
+      "clv_positive_pct": 0.444
+    },
+    {
+      "label": "α=0.4",
+      "alpha": 0.4,
+      "brier": 0.5881,
+      "log_loss": 0.9848,
+      "opening_roi_pct": -5.53,
+      "n_bets": 230,
+      "win_rate": 0.3043,
+      "clv_mean": -0.0124,
+      "clv_positive_pct": 0.443
+    },
+    {
+      "label": "α=0.3",
+      "alpha": 0.3,
+      "brier": 0.5882,
+      "log_loss": 0.9852,
+      "opening_roi_pct": -5.83,
+      "n_bets": 229,
+      "win_rate": 0.3013,
+      "clv_mean": -0.0125,
+      "clv_positive_pct": 0.445
+    }
+  ],
+  "sort_key": "brier",
+  "note": "选型先看 Brier/CLV；禁止只因 opening ROI 最高选 α"
+}

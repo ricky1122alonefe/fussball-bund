@@ -316,6 +316,37 @@ def walkforward(league, season, model, bet_period, bookmaker, min_edge, calibrat
         click.echo(f"  详情: {output}")
 
 
+@cli.command("calibrate-scan")
+@click.option("--league", "-l", required=True, help="联赛 key")
+@click.option("--season", "-s", required=True, help="赛季")
+@click.option("--model", type=click.Choice(["poisson", "dixoncoles", "xgpoisson"]), default="dixoncoles", help="预测模型")
+@click.option("--alphas", default="0.3,0.4,0.5", help="待对比的 α，逗号分隔")
+@click.option("--bet-period", type=click.Choice(["opening", "closing"]), default="opening", help="下注赔率周期")
+@click.option("--bookmaker", default="Pinnacle", help="庄家")
+@click.option("--min-edge", default=0.03, type=float, help="最小优势阈值")
+@click.option("-o", "--output", help="输出 JSON 路径")
+def calibrate_scan(league, season, model, alphas, bet_period, bookmaker, min_edge, output) -> None:
+    """平局校准 α 网格对比（walk-forward，主排序 Brier，禁止只看 ROI）。"""
+    from fussball_bund.analysis.calibrate_scan import (
+        format_table,
+        run_calibrate_scan,
+        save_scan,
+    )
+
+    alpha_list = tuple(float(x) for x in alphas.split(","))
+    scan = run_calibrate_scan(
+        league, season, model_name=model, alphas=alpha_list,
+        bet_period=bet_period, bookmaker=bookmaker, min_edge=min_edge,
+    )
+    click.echo(f"\n  校准 α 网格对比 {league} {season}  (模型: {model}, 下注: {bet_period})")
+    for line in format_table(scan).splitlines():
+        click.echo("  " + line)
+    click.echo("\n  选型优先级: Brier/CLV 优先；禁止只因 opening ROI 最高选 α")
+    if output:
+        save_scan(scan, output)
+        click.echo(f"  JSON: {output}")
+
+
 @cli.command("margin")
 @click.option("--league", "-l", required=True, help="联赛 key")
 @click.option("--season", "-s", required=True, help="赛季")

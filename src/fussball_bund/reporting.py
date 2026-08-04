@@ -131,7 +131,8 @@ def generate_report(
 
     # ---- 4. 回测概览 ----
     lines.append("\n## 四、策略回测概览\n")
-    bt = finder.backtest(league_code, season, min_edge=0.03)
+    # 显式 opening：与价值投注清单(find)一致，遵循回测协议默认（禁止 silently 用 closing）
+    bt = finder.backtest(league_code, season, period="opening", min_edge=0.03)
     lines.append(f"- 投注笔数: {bt['total_bets']}")
     lines.append(f"- 命中率: {bt['win_rate']:.1%}")
     lines.append(f"- 盈亏: {bt['profit']:+.2f}（单位注）")

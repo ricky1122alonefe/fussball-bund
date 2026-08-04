@@ -139,7 +139,6 @@ def run_walkforward(
 
         for m in day_matches:
             pred = model.predict(m["home_team"], m["away_team"])
-            all_probs.append((pred.p_home, pred.p_draw, pred.p_away))
             all_actuals.append(m["ft_result"])
 
             # 取该场下注周期 + 收盘赔率
@@ -154,6 +153,8 @@ def run_walkforward(
                 (m["id"], bookmaker, closing_period),
             )
             if not ob or not ob[0]["home"]:
+                # 无开盘赔率：用 raw 概率评估 Brier，不投注
+                all_probs.append((pred.p_home, pred.p_draw, pred.p_away))
                 continue
             oh, od, oa = ob[0]["home"], ob[0]["draw"], ob[0]["away"]
             implied = implied_probabilities((oh, od, oa))
@@ -164,6 +165,8 @@ def run_walkforward(
                 ph, pd, pa = calibrate_draw(pred, implied, calibrate_alpha)
             else:
                 ph, pd, pa = pred.p_home, pred.p_draw, pred.p_away
+            # Brier/log-loss 用校准后概率（反映校准效果，否则各 α 指标无差异）
+            all_probs.append((ph, pd, pa))
 
             ch = cb[0]["home"] if cb and cb[0]["home"] else None
             cd = cb[0]["draw"] if cb and cb[0]["draw"] else None

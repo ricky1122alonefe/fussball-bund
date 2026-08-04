@@ -131,7 +131,7 @@ class ValueBetFinder:
 
     def backtest(
         self, league_code: str, season: str,
-        bookmaker: str = "Pinnacle", period: str = "closing",
+        bookmaker: str = "Pinnacle", period: str = "opening",
         min_edge: float = 0.03, stake: float = 1.0,
     ) -> dict:
         """回测：对历史已完赛比赛的价值投注，计算实际盈亏。"""

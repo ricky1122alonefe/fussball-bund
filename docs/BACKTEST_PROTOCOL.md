@@ -35,6 +35,24 @@ fussball walkforward -l EPL -s 2024-2025 --model dixoncoles --bet-period opening
 
 `--protocol legacy`（value/backtest）或 `--bet-period closing` 等价复现 Phase 1-5 的 closing-based 回测，**仅供历史对比，不得用于选型**。
 
+## 校准 α 选型（calibrate-scan）
+
+平局校准 `calibrate_draw` 的混合权重 α（默认 0.4）需基于 walk-forward 实测选定，
+**禁止只因 opening ROI 最高选 α**（ROI 受单场结果方差影响，小样本下易过拟合）。
+
+```
+fussball calibrate-scan -l EPL -s 2024-2025 --model dixoncoles
+```
+
+对比 raw（不校准）与 α ∈ {0.3, 0.4, 0.5}（可 `--alphas` 自定义），输出 Brier / log-loss / opening ROI / CLV / n_bets 对比表。
+
+选型规则（按优先级）：
+1. **Brier**（概率预测质量，越低越好）——主排序字段
+2. **CLV mean**（越接近 0 或为正越好，不受结果方差影响）
+3. opening ROI 仅作参考（需大样本才稳定）
+
+raw 作对照基线：若某 α 的 Brier 不优于 raw，说明校准未带来概率质量提升，不应选用。
+
 ## 验收命令
 
 ```bash
