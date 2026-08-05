@@ -76,3 +76,14 @@ CREATE TABLE IF NOT EXISTS collection_log (
     detail TEXT,
     run_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- 队名映射：统一各数据源队名到 football-data canonical_name
+-- 堵住 xG 同日盲匹配（LIMIT 1 串队）
+CREATE TABLE IF NOT EXISTS team_name_map (
+    source TEXT NOT NULL,           -- understat | fbref | clubelo | odds_api | football_data
+    source_name TEXT NOT NULL,
+    league_code TEXT NOT NULL,
+    canonical_name TEXT NOT NULL,   -- 统一用 football-data 队名
+    UNIQUE(source, source_name, league_code)
+);
+CREATE INDEX IF NOT EXISTS idx_team_map_lookup ON team_name_map(source, league_code);

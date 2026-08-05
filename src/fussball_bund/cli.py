@@ -347,6 +347,50 @@ def calibrate_scan(league, season, model, alphas, bet_period, bookmaker, min_edg
         click.echo(f"  JSON: {output}")
 
 
+@cli.command("map-teams")
+@click.option("--league", "-l", required=True, help="联赛 key")
+@click.option("--source", type=click.Choice(["understat"]), default="understat", help="数据源")
+@click.option("--season", "-s", required=True, help="赛季")
+@click.option("--dry-run", is_flag=True, default=False, help="仅展示不写入（默认即 dry-run）")
+@click.option("--apply", "do_apply", is_flag=True, default=False, help="写入 team_name_map")
+def map_teams(league, source, season, dry_run, do_apply) -> None:
+    """生成/写入队名映射（堵住同日盲匹配）。"""
+    from fussball_bund.storage.team_map import build_understat_mappings, upsert_mapping
+
+    db = get_db()
+    mappings = build_understat_mappings(db, league, season)
+    if not mappings:
+        click.echo("无候选映射（确认已采集 understat 数据）")
+        return
+    click.echo(f"\n  队名映射 {league} {source} {season}")
+    click.echo(f"  {'source_name':<32}{'canonical':<32}")
+    click.echo(f"  {'-' * 32}{'-' * 32}")
+    for m in mappings:
+        click.echo(f"  {m.source_name:<32}{m.canonical_name:<32}")
+    # 覆盖率
+    try:
+        all_rows = db.execute(
+            "SELECT DISTINCT home_team AS n FROM understat_shots WHERE league=? "
+            "UNION SELECT DISTINCT away_team FROM understat_shots WHERE league=?",
+            (league, league),
+        )
+        all_names = {r["n"] for r in all_rows}
+    except Exception:
+        all_names = set()
+    mapped_names = {m.source_name for m in mappings}
+    cov = len(mapped_names & all_names) / len(all_names) if all_names else 0
+    unmapped = sorted(all_names - mapped_names)
+    click.echo(f"\n  覆盖率: {cov:.1%} ({len(mapped_names)}/{len(all_names)})")
+    if unmapped:
+        click.echo(f"  未匹配: {unmapped}")
+    if do_apply:
+        for m in mappings:
+            upsert_mapping(db, m.source, m.source_name, m.league_code, m.canonical_name)
+        click.echo(f"  已写入 team_name_map: {len(mappings)} 条")
+    else:
+        click.echo("  (dry-run，加 --apply 写入)")
+
+
 @cli.command("margin")
 @click.option("--league", "-l", required=True, help="联赛 key")
 @click.option("--season", "-s", required=True, help="赛季")

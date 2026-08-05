@@ -83,24 +83,27 @@ class XGPoissonModel:
                 "请先执行 fussball collect-fundamentals --source understat 采集对应赛季/日期范围"
             )
 
-        # 2. 用 date 匹配 matches 表，建 Understat 名 → football-data 名映射
+        # 2. 队名解析：只走 team_name_map（禁止 match_date + LIMIT 1 盲匹配，同日多场会串队）
+        #    用 xG 前需先 fussball map-teams --apply
+        from fussball_bund.storage.team_map import resolve
+
         name_map: dict[str, str] = {}
-        matched = 0
+        unmapped: set[str] = set()
         for r in rows:
-            if not r["date"]:
-                continue
-            m = self.db.execute(
-                "SELECT home_team, away_team FROM matches "
-                "WHERE league_code=? AND match_date=? LIMIT 1",
-                (league_code, r["date"]),
+            for src_name in (r["home_team"], r["away_team"]):
+                if not src_name or src_name in name_map or src_name in unmapped:
+                    continue
+                canon = resolve(self.db, "understat", src_name, league_code)
+                if canon:
+                    name_map[src_name] = canon
+                else:
+                    unmapped.add(src_name)
+        if unmapped:
+            logger.warning(
+                "xG 队名未映射 %d 个: %s（请先 fussball map-teams --apply）",
+                len(unmapped), sorted(unmapped)[:10],
             )
-            if m:
-                if r["home_team"] and m[0]["home_team"]:
-                    name_map[r["home_team"]] = m[0]["home_team"]
-                if r["away_team"] and m[0]["away_team"]:
-                    name_map[r["away_team"]] = m[0]["away_team"]
-                matched += 1
-        logger.info("xG 球队名映射: %d 场匹配, %d 个队名", matched, len(name_map))
+        logger.info("xG 球队名映射: %d 个映射, %d 个未映射", len(name_map), len(unmapped))
 
         # 3. 用 football-data 名聚合 xG 攻防强度
         home_xg_for = defaultdict(list)

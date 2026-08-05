@@ -99,6 +99,9 @@ fussball collect-odds --league EPL
 fussball collect-fundamentals --league EPL --season 2024-2025 --source fbref
 fussball collect-fundamentals --league EPL --season 2024-2025 --source understat
 fussball collect-fundamentals --source clubelo --team "Man City"
+
+# 队名映射（understat→football-data，堵住同日盲匹配，先 --dry-run 审查再 --apply）
+fussball map-teams -l EPL --source understat --season 2024-2025 --apply
 ```
 
 ### 4. 查询与统计
