@@ -347,6 +347,85 @@ def calibrate_scan(league, season, model, alphas, bet_period, bookmaker, min_edg
         click.echo(f"  JSON: {output}")
 
 
+@cli.command("model-compare")
+@click.option("--league", "-l", required=True, help="联赛 key")
+@click.option("--season", "-s", required=True, help="赛季")
+@click.option("--models", default="poisson,dixoncoles,xgpoisson", help="待对比的模型，逗号分隔")
+@click.option("--bet-period", type=click.Choice(["opening", "closing"]), default="opening", help="下注赔率周期")
+@click.option("--bookmaker", default="Pinnacle", help="庄家")
+@click.option("--min-edge", default=0.03, type=float, help="最小优势阈值")
+@click.option("--calibrate", is_flag=True, help="启用平局校准（默认 raw，与 walkforward 一致）")
+@click.option("--calibrate-alpha", default=0.4, type=float, help="平局校准 α（需配合 --calibrate）")
+@click.option("-o", "--output", help="输出 JSON 路径")
+@click.option("--md", help="输出 Markdown 路径")
+def model_compare(league, season, models, bet_period, bookmaker, min_edge, calibrate, calibrate_alpha, output, md) -> None:
+    """模型对比报告（poisson/dixoncoles/xgpoisson 统一 walk-forward 表）。
+
+    一条命令出对比表 + JSON/Markdown，固化「选型用 Brier/CLV，不用 closing ROI」。
+    """
+    from fussball_bund.analysis.model_compare import (
+        format_table,
+        run_model_compare,
+        save_compare,
+        save_markdown,
+    )
+
+    model_list = tuple(m.strip() for m in models.split(",") if m.strip())
+    compare = run_model_compare(
+        league, season, models=model_list, bet_period=bet_period,
+        bookmaker=bookmaker, min_edge=min_edge,
+        calibrate=calibrate, calibrate_alpha=calibrate_alpha,
+    )
+    click.echo(f"\n  模型对比 {league} {season}  (下注: {bet_period}, 模型: {list(model_list)})")
+    for line in format_table(compare).splitlines():
+        click.echo("  " + line)
+    click.echo("\n  选型优先级: Brier → CLV → opening ROI；禁止用 closing ROI 选型")
+    if output:
+        save_compare(compare, output)
+        click.echo(f"  JSON: {output}")
+    if md:
+        save_markdown(compare, md)
+        click.echo(f"  MD:   {md}")
+
+
+@cli.command("preview")
+@click.option("--league", "-l", required=True, help="联赛 key")
+@click.option("--days", default=7, type=int, help="未来天数范围（默认 7）")
+@click.option(
+    "--model",
+    type=click.Choice(["poisson", "dixoncoles", "xgpoisson"]),
+    default="dixoncoles",
+    help="预测模型",
+)
+@click.option("--calibrate", is_flag=True, help="启用平局校准（仅在有赔率时生效）")
+@click.option("--calibrate-alpha", default=0.4, type=float, help="平局校准 α（需配合 --calibrate）")
+@click.option("--bookmaker", default="Pinnacle", help="对比庄家")
+@click.option("--min-edge", default=0.03, type=float, help="关注阈值（edge >= min_edge 且 EV>0 标「关注」）")
+@click.option("-o", "--output", help="输出 Markdown 文件路径，不填则打印到终端")
+def preview(league, days, model, calibrate, calibrate_alpha, bookmaker, min_edge, output) -> None:
+    """赛前关注清单（未来场 + 模型概率 + 庄家盘/edge → Markdown）。"""
+    from fussball_bund.analysis.preview import format_markdown, generate_preview
+
+    result = generate_preview(
+        league, days=days, model_name=model, calibrate=calibrate,
+        calibrate_alpha=calibrate_alpha, bookmaker=bookmaker, min_edge=min_edge,
+    )
+    click.echo(f"\n  赛前关注清单 {league}  (模型: {model}, 天数: {days})")
+    click.echo(f"  未来场: {result.n_matches}  无盘口: {result.n_no_odds}")
+    for w in result.warnings:
+        click.echo(f"  ⚠ {w}")
+
+    md = format_markdown(result)
+    if output:
+        from pathlib import Path
+        p = Path(output)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(md, encoding="utf-8")
+        click.echo(f"  MD 已保存至 {output}")
+    else:
+        click.echo(md)
+
+
 @cli.command("map-teams")
 @click.option("--league", "-l", required=True, help="联赛 key")
 @click.option("--source", type=click.Choice(["understat"]), default="understat", help="数据源")
@@ -389,6 +468,25 @@ def map_teams(league, source, season, dry_run, do_apply) -> None:
         click.echo(f"  已写入 team_name_map: {len(mappings)} 条")
     else:
         click.echo("  (dry-run，加 --apply 写入)")
+
+
+@cli.command("build-xg")
+@click.option("--league", "-l", required=True, help="联赛 key")
+@click.option("--season", "-s", required=True, help="赛季")
+def build_xg(league, season) -> None:
+    """从 understat_shots 聚合 match 级 xG（需先 map-teams --apply）。"""
+    from fussball_bund.storage.match_xg import build_match_xg
+
+    db = get_db()
+    result = build_match_xg(db, league, season)
+    click.echo(
+        f"\n  build-xg {league} {season}: "
+        f"written={result['written']}, "
+        f"skipped_unmapped={result['skipped_unmapped']}, "
+        f"skipped_other={result['skipped_other']}"
+    )
+    if result["skipped_unmapped"] > 0:
+        click.echo("  提示：先 fussball map-teams --apply 补全队名映射")
 
 
 @cli.command("margin")
@@ -451,6 +549,30 @@ def report(league: str, season: str, model: str, output: str | None, calibrate: 
         click.echo(content)
     else:
         click.echo(f"简报已保存至 {output}")
+
+
+@cli.command("poll")
+def poll() -> None:
+    """采集竞彩足球在售场次（500.com → SQLite）。"""
+    from fussball_bund.collectors.jingcai_500 import poll_jingcai
+
+    counts = poll_jingcai()
+    click.echo(
+        f"\n  竞彩采集完成: {counts['matches']} 场, "
+        f"SPF {counts['spf']}, RQSPF {counts['rqspf']}"
+    )
+    if counts["matches"] == 0:
+        click.echo("  提示：库内无竞彩数据，请检查 500.com 是否可访问")
+
+
+@cli.command("serve")
+@click.option("--host", default="127.0.0.1", help="监听地址")
+@click.option("--port", default=8901, type=int, help="监听端口")
+def serve(host: str, port: int) -> None:
+    """启动竞彩 HTTP 服务（列表 + 详情 + 推荐）。"""
+    from fussball_bund.serve import serve as _serve
+
+    _serve(host, port)
 
 
 if __name__ == "__main__":

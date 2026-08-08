@@ -87,3 +87,51 @@ CREATE TABLE IF NOT EXISTS team_name_map (
     UNIQUE(source, source_name, league_code)
 );
 CREATE INDEX IF NOT EXISTS idx_team_map_lookup ON team_name_map(source, league_code);
+
+-- match 级 xG 聚合表（每场一行，canonical 队名，供模型/回测直接读，避免扫全表射门）
+CREATE TABLE IF NOT EXISTS match_xg (
+    match_id INTEGER,                 -- 能对齐 matches.id 则填，否则 NULL
+    league_code TEXT NOT NULL,
+    season TEXT NOT NULL,
+    match_date TEXT,
+    home_team TEXT NOT NULL,           -- canonical = football-data 名
+    away_team TEXT NOT NULL,
+    home_xg REAL,
+    away_xg REAL,
+    source TEXT DEFAULT 'understat',
+    UNIQUE(league_code, season, match_date, home_team, away_team)
+);
+CREATE INDEX IF NOT EXISTS idx_match_xg_league_season ON match_xg(league_code, season);
+CREATE INDEX IF NOT EXISTS idx_match_xg_date ON match_xg(match_date);
+
+-- ============ 竞彩足球（500.com 数据源） ============
+
+-- 竞彩在售场次（每次 poll upsert）
+CREATE TABLE IF NOT EXISTS jingcai_matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_num TEXT NOT NULL UNIQUE,     -- 竞彩编号，如 周一001
+    fixture_id TEXT,                     -- 500.com 分析 ID
+    kickoff TEXT,                        -- 开赛时间 ISO
+    league_name TEXT,                    -- 联赛名（500 展示）
+    home_team TEXT,
+    away_team TEXT,
+    sell_status TEXT DEFAULT '在售',
+    handicap INTEGER,                    -- 让球数（rqspf 用）
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_jc_matches_num ON jingcai_matches(match_num);
+
+-- 竞彩赔率快照（每次 poll 追加一行，保留历史变动）
+CREATE TABLE IF NOT EXISTS jingcai_odds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_num TEXT NOT NULL,
+    market TEXT NOT NULL,               -- spf | rqspf
+    line INTEGER,                       -- 让球数（spf 为 NULL）
+    sp_home REAL,
+    sp_draw REAL,
+    sp_away REAL,
+    source TEXT DEFAULT '500',
+    ts TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_jc_odds_num ON jingcai_odds(match_num);
+CREATE INDEX IF NOT EXISTS idx_jc_odds_ts ON jingcai_odds(ts);

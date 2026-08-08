@@ -69,11 +69,39 @@ cd fussball-bund
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-
-# 配置 API Key（实时赔率需要）
-cp .env.example .env
-# 编辑 .env 填入 ODDS_API_KEY
+# 不强制任何付费 API；整条分析链路可零成本运行
 ```
+
+## 零付费推荐工作流（默认）
+
+**不需要 The Odds API。** 历史用 Football-Data.co.uk（免费 CSV），赛程/未来场用 FBref（免费网页），模型本地算，结果 MD 丢给 AI 研判。
+
+```bash
+# A. 历史战绩 + 开盘/收盘赔率（免费）
+fussball collect-history -l EPL -s 2025-2026
+
+# B. 赛程：含未完赛（ft 为空）→ preview 靠这个，不要花钱买实时 API
+#    把 <season> 换成当前/下赛季，如 2026-2027
+fussball collect-fundamentals -l EPL -s 2026-2027 --source fbref
+
+# C. （可选）xG
+fussball map-teams -l EPL --source understat --season 2025-2026 --apply
+fussball build-xg -l EPL -s 2025-2026
+
+# D. 赛前清单：只有模型概率也行；无盘口会标「无盘口」，不伪造 edge
+fussball preview -l EPL --days 14 --model dixoncoles -o reports/preview_epl.md
+
+# E. 单场 / 复盘 → 把 MD 粘贴给 AI
+fussball predict -l EPL -s 2025-2026 --home "Man City" --away Arsenal --model dixoncoles
+fussball report -l EPL -s 2025-2026 --model dixoncoles -o reports/report.md
+```
+
+| 能力 | 零付费 | 有 Odds API（可选） |
+|------|:------:|:------------------:|
+| 历史分析 / walk-forward | ✅ | ✅ |
+| 模型概率 + 比分 | ✅ | ✅ |
+| 赛前 preview | ✅（FBref 赛程） | ✅ |
+| vs 实时庄家 edge | ✗（只有历史盘） | ✅ |
 
 ## 使用
 
@@ -87,29 +115,166 @@ fussball collect-history --league EPL --season 2024-2025
 fussball collect-history --all
 ```
 
-### 2. 抓取实时赔率（The Odds API，需 key）
+### 2. 抓取实时赔率（The Odds API，**可选**，可不买）
+
+仅当你需要「赛前实时多庄 edge」时再考虑；站点常有免费额度。
 
 ```bash
+# 仅可选：cp .env.example .env 并填 ODDS_API_KEY
 fussball collect-odds --league EPL
 ```
 
-### 3. 抓取基本面（FBref/Understat/ClubElo）
+### 3. 抓取基本面（FBref/Understat/ClubElo，免费）
 
 ```bash
-fussball collect-fundamentals --league EPL --season 2024-2025 --source fbref
+# 赛程（含未完赛 → preview 数据源，默认请走这条而不是 collect-odds）
+fussball collect-fundamentals --league EPL --season 2026-2027 --source fbref
 fussball collect-fundamentals --league EPL --season 2024-2025 --source understat
 fussball collect-fundamentals --source clubelo --team "Man City"
 
 # 队名映射（understat→football-data，堵住同日盲匹配，先 --dry-run 审查再 --apply）
 fussball map-teams -l EPL --source understat --season 2024-2025 --apply
+
+# 聚合 match 级 xG（每场一行，canonical 队名；需先 map-teams --apply）
+fussball build-xg -l EPL -s 2024-2025
+# 完成后即可 predict/walkforward --model xgpoisson（fit 直接读 match_xg）
 ```
 
-### 4. 查询与统计
+### 3a. 欧冠（UCL）采集
+
+> **禁止依赖 football-data.co.uk 欧冠 CSV**（2023 起 404，已停维）。
+> UCL 正赛赛程通过 FBref 采集（需一次性注册 SoccerData 自定义联赛字典）。
+
+**前置：注册 UCL 到 SoccerData**（SoccerData 原生不含 UCL）：
+
+```bash
+mkdir -p ~/soccerdata/config
+cat > ~/soccerdata/config/league_dict.json << 'EOF'
+{
+  "UEFA-Champions League": {
+    "FBref": "UEFA Champions League",
+    "season_code": "multi-year"
+  }
+}
+EOF
+```
+
+**采集 UCL 正赛赛程 + 比分**：
+
+```bash
+fussball collect-fundamentals -l UCL -s 2024-2025 --source fbref  # 189 场（League phase → Final）
+fussball collect-fundamentals -l UCL -s 2023-2024 --source fbref  # 125 场
+fussball query -l UCL -s 2024-2025 -n 10
+```
+
+**赔率**：UCL 1X2 赔率需 The Odds API（`soccer_uefa_champs_league`），配置 `ODDS_API_KEY` 后：
+
+```bash
+fussball collect-odds -l UCL  # 仅即将开赛比赛，非历史
+```
+
+**覆盖范围与限制**：
+
+| 联赛 | FBref 赛程 | FBref 比分 | 1X2 赔率 | xG | CLV 效果测 |
+|------|:---:|:---:|:---:|:---:|:---:|
+| UCL（正赛） | ✅ | ✅ | 需 API key | ✗（Understat 不覆盖） | 需 opening/closing 赔率 |
+| UCL_Q（预选） | ✗ | ✗ | 预选期间或可用 | ✗ | 暂不能做 |
+
+- **UCL_Q（预选）**：SoccerData/FBref 不覆盖预选赛（FBref 预选在独立页面，非主赛程表）；
+  The Odds API 无独立预选 sport key。当前无可用数据源，需手动录入或 API key 验证。
+- **CLV 效果测**：UCL 无历史 opening/closing 赔率（football-data.co.uk 已停维，Odds API 仅实时），
+  暂不能做 walkforward CLV 效果测。有 API key 后可积累实时赔率逐步补全。
+
+### 4. 模型选型（统一 walk-forward 对比）
+
+一条命令对比 `poisson` / `dixoncoles` / `xgpoisson` 三个模型在同一赛季的 walk-forward 表现，
+固化「选型用 Brier/CLV，不用 closing ROI」流程：
+
+```bash
+# 三模型对比（终端表 + JSON + Markdown）
+fussball model-compare -l EPL -s 2024-2025 \
+  --models poisson,dixoncoles,xgpoisson \
+  --bet-period opening \
+  -o reports/model_compare_epl_2425.json \
+  --md reports/model_compare_epl_2425.md
+
+# 仅对比两个模型
+fussball model-compare -l EPL -s 2024-2025 --models poisson,dixoncoles
+
+# 启用平局校准后对比
+fussball model-compare -l EPL -s 2024-2025 --calibrate --calibrate-alpha 0.4
+```
+
+输出每行含：`model` / `brier` / `log_loss` / `opening_roi_pct` / `n_bets` /
+`clv_mean` / `clv_positive_pct` / `n_matches` / `refits`，默认按 Brier 升序。
+
+> **选型优先级：Brier → CLV → opening ROI**。
+> 禁止用 closing ROI 选型（closing 已是高效市场，且含未来信息）。
+> 内部对每个模型复用 `run_walkforward`，不重写回测引擎。
+
+### 5. 赛前工作流（preview → AI 研判，默认零付费）
+
+整理即将开赛场次 + 模型概率（+ 有则附庄家盘/edge）→ 输出 Markdown → 丢给 AI 研判。
+不做自动下注、不做竞彩串关。
+
+```bash
+# 0. 免费拉赛程（未完赛 ft 为空）— 这条是默认，不需要付费 API
+fussball collect-fundamentals -l EPL -s 2026-2027 --source fbref
+
+# 0b.（可选）实时盘 edge：仅当你有免费/自备的 ODDS_API_KEY
+# fussball collect-odds -l EPL
+
+# 1. 生成赛前关注清单（未来 14 天 + Dixon-Coles）
+fussball preview -l EPL --days 14 --model dixoncoles -o reports/preview_epl.md
+
+# 2. 把 MD 丢给 AI 研判（AI 提示已在报告头）
+```
+
+输出每场含：模型胜平负 / 期望进球 λ / Top 3 比分；有盘口才附 edge。
+- 无赔率标「无盘口」，不伪造 edge — **够 AI 研判用**
+- UCL 等无前序 FD 时自动回退 `max_date` 拟合
+
+> 无未来场时优先提示 **FBref 免费赛程**，不是逼你买 API。
+
+### 6. 查询与统计
 
 ```bash
 fussball query --league EPL --season 2024-2025 --limit 10
 fussball stats
 ```
+
+---
+
+## 竞彩工作流（500.com → 推荐 → 浏览器）
+
+国内竞彩足球在售场次采集 + SP 解析 + 推荐引擎 + HTTP 浏览界面。
+
+```bash
+# 1. 采集竞彩在售场次（500.com live + trade → SQLite）
+fussball poll
+
+# 2. 启动浏览服务
+fussball serve --port 8901
+# → 浏览器打开 http://127.0.0.1:8901
+
+# 3. 页面内点「刷新采集」按钮或重复 fussball poll 更新 SP
+```
+
+**数据流**：`live.500.com`（赛程 + liveOddsList SP）+ `trade.500.com/jczq`（让球 + 元数据）
+→ `jingcai_matches` + `jingcai_odds` 表 → 推荐引擎 → HTML 列表/详情页
+
+**推荐规则**（纯 SP 驱动，v1）：
+- 有 SPF SP → 朴素去水算隐含概率，取向最高方向；最高 < 40% → 观望
+- 仅 RQSP → 让球玩法同理，附让球线标签
+- 无 SP → 观望（禁止无 SP 冒充可购）
+
+> ⚠️ 仅供研究参考，不构成投注建议。
+
+**API**：
+- `GET /api/jingcai/list` — 列表 JSON
+- `GET /api/jingcai/{match_num}` — 单场详情 JSON
+- `POST /api/poll` — 触发采集
+- `GET /health` — 健康检查
 
 ---
 
@@ -125,10 +290,18 @@ fussball-bund/
 │   │   ├── base.py              # HTTP session + 重试基类
 │   │   ├── football_data_uk.py  # ★ 历史赔率+战绩（核心，最稳定）
 │   │   ├── odds_api.py          # 实时赔率（The Odds API）
-│   │   └── fundamentals.py      # 基本面（FBref/Understat/ClubElo）
+│   │   ├── fundamentals.py      # 基本面（FBref/Understat/ClubElo）
+│   │   └── jingcai_500.py       # 竞彩足球（500.com）
 │   ├── storage/                 # 存储层
 │   │   ├── db.py                # SQLite + WAL + upsert
-│   │   └── schema.sql           # 表结构
+│   │   └── schema.sql           # 表结构（含 jingcai_* 表）
+│   ├── analysis/                # 分析层
+│   │   ├── models.py            # Poisson / Dixon-Coles / xG
+│   │   ├── walkforward.py       # 回测引擎
+│   │   ├── model_compare.py     # 模型对比
+│   │   ├── preview.py           # 赛前关注清单
+│   │   └── jingcai_pick.py      # 竞彩推荐引擎
+│   ├── serve.py                 # 竞彩 HTTP 服务（列表+详情+API）
 │   └── cli.py                   # 命令行入口
 └── data/                        # SQLite 数据库
 ```
