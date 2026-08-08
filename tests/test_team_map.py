@@ -14,6 +14,19 @@ def test_normalize():
     assert normalize("Wolves") == "wolves"
 
 
+def test_resolve_to_canonical_alias(tmp_db):
+    from fussball_bund.storage.team_map import resolve_to_canonical
+
+    # football-data 历史里已有短名
+    with tmp_db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO matches(league_code,season,match_date,home_team,away_team,ft_result) "
+            "VALUES ('EPL','2024-2025','2024-08-01','Man City','Arsenal','H')"
+        )
+    assert resolve_to_canonical(tmp_db, "EPL", "Manchester City", source="fbref") == "Man City"
+    assert resolve_to_canonical(tmp_db, "EPL", "Wolverhampton Wanderers") == "Wolves"
+
+
 def test_resolve_upsert(tmp_db):
     upsert_mapping(tmp_db, "understat", "Manchester United", "EPL", "Man United")
     assert resolve(tmp_db, "understat", "Manchester United", "EPL") == "Man United"

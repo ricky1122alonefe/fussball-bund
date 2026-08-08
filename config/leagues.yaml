@@ -56,8 +56,20 @@ leagues:
     country: Europe
     football_data_uk: null  # football-data.co.uk 已停止维护欧冠 CSV（2023起 404），改用 odds_api + fbref
     odds_api: soccer_uefa_champs_league
-    fbref: UEFA-Champions League
+    fbref: UEFA-Champions League  # 需 ~/soccerdata/config/league_dict.json 注册（SoccerData 原生不含 UCL）
     understat: null  # Understat 不覆盖欧冠
+    # FBref schedule 覆盖范围：正赛（League phase → Final），不含预选赛
+
+  UCL_Q:
+    name: 欧冠预选
+    name_en: UEFA Champions League Qualifying
+    country: Europe
+    football_data_uk: null
+    # The Odds API 无独立预选 sport key；预选赛期间 soccer_uefa_champs_league 可能含预选场（需 key 验证）
+    odds_api: soccer_uefa_champs_league
+    fbref: null  # SoccerData/FBref 不覆盖欧冠预选（FBref 预选在独立页面，非主赛程表）
+    understat: null
+    # 当前无可用数据源：需 The Odds API key（预选期间）或手动录入
 
 # Football-Data.co.uk 默认抓取的赛季（YYYY-YYYY）
 default_seasons:

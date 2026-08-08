@@ -82,3 +82,28 @@ def insert_xg_match(tmp_db):
         return match_id
 
     return _insert
+
+
+@pytest.fixture
+def insert_match_xg(tmp_db):
+    """插入一行 match_xg（canonical 队名，每场一行），用于 xG 模型 fit 测试。"""
+
+    def _insert(league, season, date, home, away, home_xg, away_xg, match_id=None):
+        with tmp_db.transaction() as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS match_xg ("
+                "match_id INTEGER, league_code TEXT NOT NULL, season TEXT NOT NULL, "
+                "match_date TEXT, home_team TEXT NOT NULL, away_team TEXT NOT NULL, "
+                "home_xg REAL, away_xg REAL, source TEXT DEFAULT 'understat', "
+                "UNIQUE(league_code, season, match_date, home_team, away_team))"
+            )
+            conn.execute(
+                "INSERT INTO match_xg(match_id, league_code, season, match_date, "
+                "home_team, away_team, home_xg, away_xg) "
+                "VALUES (?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(league_code, season, match_date, home_team, away_team) "
+                "DO UPDATE SET home_xg=excluded.home_xg, away_xg=excluded.away_xg",
+                (match_id, league, season, date, home, away, home_xg, away_xg),
+            )
+
+    return _insert

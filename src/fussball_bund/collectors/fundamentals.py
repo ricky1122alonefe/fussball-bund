@@ -24,12 +24,25 @@ class FundamentalsCollector(BaseCollector):
     name = "fundamentals"
 
     def collect_fbref_schedule(self, league_key: str, season: str) -> int:
-        """抓取 FBref 赛程表（含已完赛比分）。"""
-        import soccerdata as sd
+        """抓取 FBref 赛程表（已完赛 + 未踢完场；未完赛 ft_* 为空）。
 
+        **零付费路径**：不需要 Odds API。未完赛写入库后，``fussball preview`` 可直接出模型概率。
+
+        FBref schedule 的比分在 ``score`` 列（格式 ``"H–A"``，en-dash 分隔），
+        无独立 home_score/away_score 列。此方法同时兼容旧式列名（若存在）。
+
+        队名：经 resolve_to_canonical 对齐到 football-data 短名，便于历史模型拟合。
+        """
         from fussball_bund.config import load_leagues
+        from fussball_bund.storage.team_map import resolve_to_canonical
 
         cfg = load_leagues()[league_key]
+        if not cfg.fbref:
+            logger.warning("%s 无 FBref 支持（免费赛程不可用，勿用付费 Odds 强求）", league_key)
+            return 0
+
+        import soccerdata as sd
+
         logger.info("FBref 赛程: %s %s", cfg.fbref, season)
         fbref = sd.FBref(leagues=[cfg.fbref], seasons=[season])
         df = fbref.read_schedule()
@@ -37,11 +50,36 @@ class FundamentalsCollector(BaseCollector):
             logger.warning("FBref 无数据 %s %s", league_key, season)
             return 0
         n = 0
+        n_unplayed = 0
+        pending_maps: list[tuple[str, str]] = []  # (raw, canon) for fbref
         with self.db.transaction() as conn:
             for _, row in df.iterrows():
                 if row.get("home_team") is None or row.get("away_team") is None:
                     continue
                 date = str(row.get("date"))[:10] if row.get("date") is not None else None
+                # 比分：优先 home_score/away_score 列；回退解析 score 列（"H–A" en-dash）
+                home_score = self._safe_int(row.get("home_score"))
+                away_score = self._safe_int(row.get("away_score"))
+                if home_score is None or away_score is None:
+                    hs, as_ = self._parse_score(row.get("score"))
+                    home_score = home_score if home_score is not None else hs
+                    away_score = away_score if away_score is not None else as_
+                # 队名对齐 canonical（历史 FD 训练数据通用；免费路径）
+                raw_h = str(row["home_team"]).strip()
+                raw_a = str(row["away_team"]).strip()
+                home = resolve_to_canonical(
+                    self.db, league_key, raw_h, source="fbref", persist=False
+                )
+                away = resolve_to_canonical(
+                    self.db, league_key, raw_a, source="fbref", persist=False
+                )
+                if home != raw_h:
+                    pending_maps.append((raw_h, home))
+                if away != raw_a:
+                    pending_maps.append((raw_a, away))
+                ft_result = self._result(home_score, away_score)
+                if ft_result is None:
+                    n_unplayed += 1
                 conn.execute(
                     "INSERT INTO matches(league_code,season,match_date,home_team,away_team,"
                     "ft_home_goals,ft_away_goals,ft_result) "
@@ -52,15 +90,24 @@ class FundamentalsCollector(BaseCollector):
                     "ft_result=COALESCE(excluded.ft_result,matches.ft_result)",
                     (
                         league_key, season, date,
-                        str(row["home_team"]).strip(),
-                        str(row["away_team"]).strip(),
-                        self._safe_int(row.get("home_score")),
-                        self._safe_int(row.get("away_score")),
-                        self._result(row.get("home_score"), row.get("away_score")),
+                        home,
+                        away,
+                        home_score,
+                        away_score,
+                        ft_result,
                     ),
                 )
                 n += 1
-        self.db.log_collection(self.name, "success", f"fbref schedule {n} rows", league_key, season)
+        from fussball_bund.storage.team_map import upsert_mapping
+
+        for raw, canon in dict(pending_maps).items():  # 去重
+            upsert_mapping(self.db, "fbref", raw, league_key, canon)
+        self.db.log_collection(
+            self.name, "success",
+            f"fbref schedule {n} rows ({n_unplayed} unplayed)",
+            league_key, season,
+        )
+        logger.info("FBref 写入 %d 行（其中未完赛 %d 行 → 可供 preview）", n, n_unplayed)
         return n
 
     def collect_clubelo(self, team: str) -> int:
@@ -180,3 +227,24 @@ class FundamentalsCollector(BaseCollector):
         if hi is None or ai is None:
             return None
         return "H" if hi > ai else ("D" if hi == ai else "A")
+
+    @staticmethod
+    def _parse_score(score) -> tuple[int | None, int | None]:
+        """解析 FBref schedule 的 score 列（格式 ``"H–A"``，en-dash 分隔）。
+
+        兼容 en-dash (–)、em-dash (—)、普通 hyphen (-)。
+        """
+        if score is None:
+            return None, None
+        s = str(score).strip()
+        if not s:
+            return None, None
+        for sep in ("\u2013", "\u2014", "-"):  # en-dash, em-dash, hyphen
+            if sep in s:
+                parts = s.split(sep)
+                if len(parts) == 2:
+                    try:
+                        return int(parts[0].strip()), int(parts[1].strip())
+                    except ValueError:
+                        return None, None
+        return None, None

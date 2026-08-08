@@ -62,24 +62,24 @@ def test_walkforward_no_future_in_training(tmp_db, insert_match):
     assert result.brier >= 0
 
 
-def test_xg_fit_max_date_excludes_future(tmp_db, insert_xg_match):
-    """xG 模型 fit(max_date=d) 的训练数据不含 date >= d 的样本。"""
+def test_xg_fit_max_date_excludes_future(tmp_db, insert_match_xg):
+    """xG 模型 fit(max_date=d) 的训练数据不含 date >= d 的样本（数据源 match_xg）。"""
     from fussball_bund.analysis.xg_model import XGPoissonModel
 
-    insert_xg_match("TST", "2024-2025", "2024-08-01", "A", "B", 2.0, 0.5, "m1")
-    insert_xg_match("TST", "2024-2025", "2024-08-08", "A", "B", 1.0, 0.5, "m2")
-    insert_xg_match("TST", "2024-2025", "2024-08-15", "A", "B", 0.5, 0.5, "m3")  # 不进训练
+    insert_match_xg("TST", "2024-2025", "2024-08-01", "A", "B", 2.0, 0.5)
+    insert_match_xg("TST", "2024-2025", "2024-08-08", "A", "B", 1.0, 0.5)
+    insert_match_xg("TST", "2024-2025", "2024-08-15", "A", "B", 0.5, 0.5)  # 不进训练
 
-    m = XGPoissonModel(db=tmp_db).fit("TST", max_date="2024-08-10")
-    # 主队 xG: m1=2.0, m2=1.0（不含 m3 的 0.5）→ avg_home_xg = 1.5
+    m = XGPoissonModel(db=tmp_db).fit("TST", max_date="2024-08-10", min_matches=1)
+    # 主队 xG: 2.0, 1.0（不含 0.5）→ avg_home_xg = 1.5
     assert abs(m.avg_home_xg - 1.5) < 1e-6, "xG 训练数据含未来比赛（数据泄露）！"
 
 
-def test_xg_fit_max_date_boundary(tmp_db, insert_xg_match):
+def test_xg_fit_max_date_boundary(tmp_db, insert_match_xg):
     """边界：max_date == 某比赛 date 时该比赛不进训练（严格 <）。"""
     from fussball_bund.analysis.xg_model import XGPoissonModel
 
-    insert_xg_match("TST", "2024-2025", "2024-08-01", "A", "B", 2.0, 1.0, "m1")
-    insert_xg_match("TST", "2024-2025", "2024-08-08", "A", "B", 4.0, 1.0, "m2")
-    m = XGPoissonModel(db=tmp_db).fit("TST", max_date="2024-08-08")
-    assert abs(m.avg_home_xg - 2.0) < 1e-6  # 只含 m1 的 2.0
+    insert_match_xg("TST", "2024-2025", "2024-08-01", "A", "B", 2.0, 1.0)
+    insert_match_xg("TST", "2024-2025", "2024-08-08", "A", "B", 4.0, 1.0)
+    m = XGPoissonModel(db=tmp_db).fit("TST", max_date="2024-08-08", min_matches=1)
+    assert abs(m.avg_home_xg - 2.0) < 1e-6  # 只含 08-01 的 2.0

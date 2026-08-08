@@ -1,0 +1,39 @@
+{
+  "league": "EPL",
+  "season": "2024-2025",
+  "models": [
+    "poisson",
+    "dixoncoles"
+  ],
+  "bet_period": "opening",
+  "bookmaker": "Pinnacle",
+  "min_edge": 0.03,
+  "calibrate": false,
+  "calibrate_alpha": null,
+  "rows": [
+    {
+      "model": "dixoncoles",
+      "brier": 0.5878,
+      "log_loss": 0.9833,
+      "opening_roi_pct": -2.72,
+      "n_bets": 281,
+      "clv_mean": -0.0071,
+      "clv_positive_pct": 0.456,
+      "n_matches": 380,
+      "refits": 109
+    },
+    {
+      "model": "poisson",
+      "brier": 0.602,
+      "log_loss": 1.0097,
+      "opening_roi_pct": -10.43,
+      "n_bets": 325,
+      "clv_mean": -0.0083,
+      "clv_positive_pct": 0.437,
+      "n_matches": 380,
+      "refits": 109
+    }
+  ],
+  "sort_key": "brier",
+  "note": "选型优先级: Brier → CLV → opening ROI；禁止用 closing ROI 选型"
+}

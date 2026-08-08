@@ -60,6 +60,81 @@ def resolve(db: Database, source: str, source_name: str, league_code: str) -> st
     return rows[0]["canonical_name"] if rows else None
 
 
+# FBref / 常见全称 → football-data.co.uk 短名（零 API，本地别名表）
+# 主要用于 EPL；其它联赛靠归一化模糊匹配
+_COMMON_ALIASES: dict[str, str] = {
+    "manchester city": "Man City",
+    "manchester united": "Man United",
+    "nottingham forest": "Nott'm Forest",
+    "newcastle united": "Newcastle",
+    "tottenham hotspur": "Tottenham",
+    "west ham united": "West Ham",
+    "wolverhampton wanderers": "Wolves",
+    "wolverhampton": "Wolves",
+    "brighton and hove albion": "Brighton",
+    "brighton hove albion": "Brighton",
+    "sheffield united": "Sheffield United",
+    "sheffield utd": "Sheffield United",
+    "nottm forest": "Nott'm Forest",
+    "nott m forest": "Nott'm Forest",
+    "leicester city": "Leicester",
+    "leeds united": "Leeds",
+    "ipswich town": "Ipswich",
+    "aston villa": "Aston Villa",
+    "crystal palace": "Crystal Palace",
+    "atalanta": "Atalanta",
+}
+
+
+def resolve_to_canonical(
+    db: Database,
+    league_code: str,
+    source_name: str,
+    source: str = "fbref",
+    persist: bool = True,
+) -> str:
+    """把任意源队名解析为 football-data 风格 canonical（不依赖 Odds API）。
+
+    顺序：team_name_map → 别名表 → 已有 matches 队名模糊匹配 → 原名回退。
+    """
+    name = (source_name or "").strip()
+    if not name:
+        return name
+
+    for src in (source, "understat", "fbref"):
+        hit = resolve(db, src, name, league_code)
+        if hit:
+            return hit
+
+    key = normalize(name)
+    if key in _COMMON_ALIASES:
+        canon = _COMMON_ALIASES[key]
+        if persist:
+            upsert_mapping(db, source, name, league_code, canon)
+        return canon
+
+    # 模糊匹配：对阵库中该联赛已有球队（通常来自 football-data 短名）
+    rows = db.execute(
+        "SELECT DISTINCT home_team AS n FROM matches WHERE league_code=? "
+        "UNION SELECT DISTINCT away_team FROM matches WHERE league_code=?",
+        (league_code, league_code),
+    )
+    best, best_score = name, 0.0
+    for r in rows:
+        cand = r["n"]
+        if not cand:
+            continue
+        sc = _str_sim(key, normalize(cand))
+        if sc > best_score:
+            best_score, best = sc, cand
+    if best_score >= 0.8:
+        if persist:
+            upsert_mapping(db, source, name, league_code, best)
+        return best
+
+    return name
+
+
 def list_unmapped(db: Database, source: str, league_code: str) -> list[str]:
     """列出某源某联赛未映射的 understat 队名（基于 understat_shots）。"""
     try:

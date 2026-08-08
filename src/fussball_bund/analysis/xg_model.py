@@ -5,13 +5,13 @@ xG 比实际进球更稳定——去除了射门转化的随机性（进球与�
 理论上能更准确地反映球队真实实力，预测更稳定。
 
 球队名映射：
-    Understat 球队名（如 "Manchester United"）与 football-data（如 "Man United"）不一致。
-    本模型通过比赛日期自动匹配两表，建立 Understat 名 → football-data 名映射，
-    使 xG 模型能无缝接入基于 football-data 赔率的回测与价值投注识别。
+    数据源为 match_xg 表（每场一行，队名已是 football-data canonical）。
+    需先 fussball map-teams --apply 建队名映射，再 fussball build-xg 聚合。
+    fit 直接读 match_xg，不再扫 understat_shots、不再 fit 内 resolve。
 
 局限：
     - Understat 仅覆盖五大联赛（不含欧冠）
-    - 需先采集 understat 数据（collect-fundamentals --source understat）
+    - 需先 map-teams + build-xg（match_xg 无数据时 ValueError 提示）
     - 单赛季 xG 样本量较小（380 场），强度估计波动较大
 """
 from __future__ import annotations
@@ -54,58 +54,33 @@ class XGPoissonModel:
         min_matches: int = 5,
         max_date: str | None = None,
     ) -> "XGPoissonModel":
-        # 1. 从 understat_shots 聚合每场 home_xg/away_xg + date + understat 球队名
-        # walk-forward 模式：用 date < max_date 的 xG（跨赛季，严格反泄漏）
+        # 1. 直接读 match_xg（每场一行，队名已 canonical；不再扫 understat_shots）
+        # 用 xG 前需先：fussball map-teams --apply → fussball build-xg -l ... -s ...
         if max_date is not None:
             rows = self.db.execute(
-                "SELECT match_id, date, home_team, away_team, "
-                "SUM(CASE WHEN h_a='h' THEN xg END) AS home_xg, "
-                "SUM(CASE WHEN h_a='a' THEN xg END) AS away_xg "
-                "FROM understat_shots WHERE league=? AND date < ? "
-                "GROUP BY match_id, date, home_team, away_team",
+                "SELECT match_date, home_team, away_team, home_xg, away_xg "
+                "FROM match_xg WHERE league_code=? AND match_date < ? "
+                "AND home_xg IS NOT NULL AND away_xg IS NOT NULL "
+                "ORDER BY match_date",
                 (league_code, max_date),
             )
             label = f"xG<{max_date}"
         else:
             ph = ",".join("?" * len(seasons))
             rows = self.db.execute(
-                f"SELECT match_id, date, home_team, away_team, "
-                f"SUM(CASE WHEN h_a='h' THEN xg END) AS home_xg, "
-                f"SUM(CASE WHEN h_a='a' THEN xg END) AS away_xg "
-                f"FROM understat_shots WHERE league=? AND season IN ({ph}) "
-                f"GROUP BY match_id, date, home_team, away_team",
+                f"SELECT match_date, home_team, away_team, home_xg, away_xg "
+                f"FROM match_xg WHERE league_code=? AND season IN ({ph}) "
+                f"AND home_xg IS NOT NULL AND away_xg IS NOT NULL",
                 (league_code, *seasons),
             )
             label = str(seasons)
         if not rows:
             raise ValueError(
-                f"无 Understat xG 数据: {league_code} {label}，"
-                "请先执行 fussball collect-fundamentals --source understat 采集对应赛季/日期范围"
+                f"无 match_xg 数据: {league_code} {label}，"
+                "请先 fussball map-teams --apply，再 fussball build-xg -l ... -s ..."
             )
 
-        # 2. 队名解析：只走 team_name_map（禁止 match_date + LIMIT 1 盲匹配，同日多场会串队）
-        #    用 xG 前需先 fussball map-teams --apply
-        from fussball_bund.storage.team_map import resolve
-
-        name_map: dict[str, str] = {}
-        unmapped: set[str] = set()
-        for r in rows:
-            for src_name in (r["home_team"], r["away_team"]):
-                if not src_name or src_name in name_map or src_name in unmapped:
-                    continue
-                canon = resolve(self.db, "understat", src_name, league_code)
-                if canon:
-                    name_map[src_name] = canon
-                else:
-                    unmapped.add(src_name)
-        if unmapped:
-            logger.warning(
-                "xG 队名未映射 %d 个: %s（请先 fussball map-teams --apply）",
-                len(unmapped), sorted(unmapped)[:10],
-            )
-        logger.info("xG 球队名映射: %d 个映射, %d 个未映射", len(name_map), len(unmapped))
-
-        # 3. 用 football-data 名聚合 xG 攻防强度
+        # 2. 聚合 xG 攻防强度（队名已是 canonical，无需 resolve）
         home_xg_for = defaultdict(list)
         home_xg_against = defaultdict(list)
         away_xg_for = defaultdict(list)
@@ -115,8 +90,8 @@ class XGPoissonModel:
         for r in rows:
             hxg = r["home_xg"] or 0.0
             axg = r["away_xg"] or 0.0
-            h_team = name_map.get(r["home_team"], r["home_team"])
-            a_team = name_map.get(r["away_team"], r["away_team"])
+            h_team = r["home_team"]
+            a_team = r["away_team"]
             home_xg_for[h_team].append(hxg)
             home_xg_against[h_team].append(axg)
             away_xg_for[a_team].append(axg)
